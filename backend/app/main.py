@@ -4,11 +4,20 @@ from sqlalchemy.orm import Session
 from app.db.database import Base, engine, get_db
 from app.models.claim import Claim
 from app.schemas.claim import ClaimCreate, ClaimResponse
+from fastapi.middleware.cors import CORSMiddleware
+
 
 # Tables banao agar exist nahi karte (sirf development ke liye, production mein migrations use karte hain)
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="FactLens API")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/")
