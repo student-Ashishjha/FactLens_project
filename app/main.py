@@ -1,10 +1,14 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
+from sqlalchemy.orm import Session
+
+from app.db.database import Base, engine, get_db
+from app.models.claim import Claim
+from app.schemas.claim import ClaimCreate, ClaimResponse
+
+# Tables banao agar exist nahi karte (sirf development ke liye, production mein migrations use karte hain)
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="FactLens API")
-
-# Temporary in-memory storage — Day 2 mein isse MySQL se replace karenge
-claims_db = []
-next_id = 1
 
 
 @app.get("/")
@@ -17,37 +21,44 @@ def health_check():
     return {"status": "ok"}
 
 
-@app.post("/claims")
-def create_claim(claim_text: str):
-    global next_id
-    claim = {
-        "id": next_id,
-        "text": claim_text,
-        "status": "pending"
-    }
-    claims_db.append(claim)
-    next_id += 1
+@app.post("/claims", response_model=ClaimResponse)
+def create_claim(claim: ClaimCreate, db: Session = Depends(get_db)):
+    new_claim = Claim(text=claim.text)
+    db.add(new_claim)
+    db.commit()
+    db.refresh(new_claim)
+    return new_claim
+
+
+@app.get("/claims", response_model=list[ClaimResponse])
+def get_all_claims(db: Session = Depends(get_db)):
+    return db.query(Claim).all()
+
+
+@app.get("/claims/{claim_id}", response_model=ClaimResponse)
+def get_claim(claim_id: int, db: Session = Depends(get_db)):
+    claim = db.query(Claim).filter(Claim.id == claim_id).first()
+    if not claim:
+        raise HTTPException(status_code=404, detail="Claim not found")
     return claim
 
 
-@app.get("/claims")
-def get_all_claims():
-    return claims_db
-
-
-@app.get("/claims/{claim_id}")
-def get_claim(claim_id: int):
-    for claim in claims_db:
-        if claim["id"] == claim_id:
-            return claim
-    raise HTTPException(status_code=404, detail="Claim not found")
+@app.put("/claims/{claim_id}/verify", response_model=ClaimResponse)
+def verify_claim(claim_id: int, db: Session = Depends(get_db)):
+    claim = db.query(Claim).filter(Claim.id == claim_id).first()
+    if not claim:
+        raise HTTPException(status_code=404, detail="Claim not found")
+    claim.status = "verified"
+    db.commit()
+    db.refresh(claim)
+    return claim
 
 
 @app.delete("/claims/{claim_id}")
-def delete_claim(claim_id: int):
-    global claims_db
-    for claim in claims_db:
-        if claim["id"] == claim_id:
-            claims_db.remove(claim)
-            return {"message": "Claim deleted"}
-    raise HTTPException(status_code=404, detail="Claim not found")
+def delete_claim(claim_id: int, db: Session = Depends(get_db)):
+    claim = db.query(Claim).filter(Claim.id == claim_id).first()
+    if not claim:
+        raise HTTPException(status_code=404, detail="Claim not found")
+    db.delete(claim)
+    db.commit()
+    return {"message": "Claim deleted"}
