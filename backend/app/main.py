@@ -1,16 +1,19 @@
+from app.core.claim_parser import parse_claim
 from fastapi import FastAPI, HTTPException, Depends
 from sqlalchemy.orm import Session
+
 
 from app.db.database import Base, engine, get_db
 from app.models.claim import Claim
 from app.schemas.claim import ClaimCreate, ClaimResponse
 from fastapi.middleware.cors import CORSMiddleware
-
+from app.routers import documents
 
 # Tables banao agar exist nahi karte (sirf development ke liye, production mein migrations use karte hain)
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="FactLens API")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
@@ -18,6 +21,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(documents.router)
 
 
 @app.get("/")
@@ -37,6 +41,19 @@ def create_claim(claim: ClaimCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_claim)
     return new_claim
+
+@app.post("/claims/{claim_id}/analyze")
+def analyze_claim(claim_id: int, db: Session = Depends(get_db)):
+    claim = db.query(Claim).filter(Claim.id == claim_id).first()
+    if not claim:
+        raise HTTPException(status_code=404, detail="Claim not found")
+    
+    analysis = parse_claim(claim.text)
+    return {
+        "claim_type": analysis.claim_type,
+        "sub_claims": analysis.sub_claims,
+        "search_keywords": analysis.search_keywords
+    }
 
 
 @app.get("/claims", response_model=list[ClaimResponse])
